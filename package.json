@@ -1,0 +1,26 @@
+{
+  "name": "autofill-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && vite build --config vite.content.config.ts",
+    "build:content": "vite build --config vite.content.config.ts"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.0",
+    "pdfjs-dist": "^6.1.200",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.28",
+    "@types/chrome": "^0.0.263",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.8"
+  }
+}
