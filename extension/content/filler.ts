@@ -152,7 +152,7 @@ function formatFromText(text: string): DateFormatSpec | null {
     }
   }
 
-  const digitCountMatch = text.match(/(\d)\s*자리/)
+  const digitCountMatch = text.match(/(\d+)\s*자리/)
   if (digitCountMatch) return formatFromDigitCount(Number(digitCountMatch[1]))
 
   const trimmed = text.trim()
@@ -170,13 +170,17 @@ function detectDateFormat(element: HTMLInputElement): DateFormatSpec | null {
   return null
 }
 
-function reformatDate(isoValue: string, format: DateFormatSpec): string {
+// hasDay가 필요한데 원본 값에 일(day)이 없으면(예: YYYY-MM 저장값을 YYYYMMDD 입력란에 넣으려는
+// 경우) 자릿수가 모자란 값을 조용히 만들어내지 않고 null을 반환해서 호출부가 'skipped'로
+// 보고하게 한다.
+function reformatDate(isoValue: string, format: DateFormatSpec): string | null {
   const [year, month, day] = isoValue.split('-')
-  if (!year || !month) return isoValue
+  if (!year || !month) return null
+  if (format.hasDay && !day) return null
 
   const yearPart = format.yearDigits === 2 ? year.slice(-2) : year
   const segments = [yearPart, month]
-  if (format.hasDay && day) segments.push(day)
+  if (format.hasDay) segments.push(day)
 
   return segments.join(format.separator)
 }
@@ -239,7 +243,11 @@ export function fillFieldWithValue(match: FieldMatch, rawValue: unknown): FillRe
   if (element instanceof HTMLInputElement && element.type === 'text' && isDateKey(match.key)) {
     const format = detectDateFormat(element)
     if (format) {
-      setNativeValue(element, reformatDate(String(rawValue), format))
+      const formatted = reformatDate(String(rawValue), format)
+      if (formatted === null) {
+        return { match, status: 'skipped', reason: '저장된 날짜 형식이 이 입력란이 요구하는 형식과 맞지 않습니다.' }
+      }
+      setNativeValue(element, formatted)
       return { match, status: 'filled' }
     }
   }
@@ -340,15 +348,27 @@ function splitByDigitPattern(value: string, groupSize: number): string[] | null 
   return parts
 }
 
-export function fillFields(matches: FieldMatch[], profile: Profile): FillResult[] {
+function isPhoneField(match: FieldMatch): boolean {
+  return match.section === 'basic' && match.key === 'phone'
+}
+
+// 분할 그룹(findSplitGroups)에 값을 배분한다. 오버레이의 항목 교체(overlay.ts)도 값의 출처만
+// 다를 뿐 같은 분할 규칙을 써야 하므로 이 함수를 통해 재사용한다.
+export function computeSplitOverrides(
+  matches: FieldMatch[],
+  getValue: (match: FieldMatch) => unknown,
+): { overrides: Map<FieldMatch, string>; unsplittable: Set<FieldMatch> } {
   const overrides = new Map<FieldMatch, string>()
   const unsplittable = new Set<FieldMatch>()
 
   for (const group of findSplitGroups(matches)) {
-    const { value } = resolveField(group[0], profile)
+    const value = getValue(group[0])
     if (typeof value !== 'string' || !value) continue
 
-    const parts = splitByDashes(value, group.length) ?? splitByDigitPattern(value, group.length)
+    // 자릿수 기반 분할(PHONE_DIGIT_PATTERNS)은 전화번호 전용 휴리스틱이다 — 다른 필드(자격증
+    // 번호 등)가 우연히 같은 자릿수를 가진다고 해서 전화번호 형식으로 잘못 나누면 안 된다.
+    const parts =
+      splitByDashes(value, group.length) ?? (isPhoneField(group[0]) ? splitByDigitPattern(value, group.length) : null)
 
     if (parts) {
       group.forEach((match, index) => overrides.set(match, parts[index]))
@@ -357,6 +377,12 @@ export function fillFields(matches: FieldMatch[], profile: Profile): FillResult[
       group.forEach((match) => unsplittable.add(match))
     }
   }
+
+  return { overrides, unsplittable }
+}
+
+export function fillFields(matches: FieldMatch[], profile: Profile): FillResult[] {
+  const { overrides, unsplittable } = computeSplitOverrides(matches, (match) => resolveField(match, profile).value)
 
   return matches.map((match) => {
     if (unsplittable.has(match)) {

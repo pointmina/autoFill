@@ -15,7 +15,14 @@ const CONTENT_SCRIPT_PATH = 'content/autofill.js'
 async function runAutofillOnActiveTab(): Promise<RunAutofillResult> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   if (!tab?.id) {
-    return { ok: false, totalCount: 0, filledCount: 0, unmatchedLabels: [], error: '활성 탭을 찾을 수 없습니다.' }
+    return {
+      ok: false,
+      totalCount: 0,
+      filledCount: 0,
+      skippedCount: 0,
+      unmatchedLabels: [],
+      error: '활성 탭을 찾을 수 없습니다.',
+    }
   }
 
   try {
@@ -27,6 +34,7 @@ async function runAutofillOnActiveTab(): Promise<RunAutofillResult> {
       ok: false,
       totalCount: 0,
       filledCount: 0,
+      skippedCount: 0,
       unmatchedLabels: [],
       error: '이 페이지에는 스크립트를 실행할 수 없습니다.',
     }

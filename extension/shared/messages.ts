@@ -16,6 +16,7 @@ export interface RunAutofillResult {
   ok: boolean
   totalCount: number
   filledCount: number
+  skippedCount: number
   unmatchedLabels: string[]
   error?: string
 }

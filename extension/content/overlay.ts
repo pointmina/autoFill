@@ -1,5 +1,6 @@
 import type { FieldMatch } from './matcher'
-import { fillFieldWithValue, getEntries, type ArraySectionKey, type FillResult } from './filler'
+import { describeFieldClues } from './scanner'
+import { computeSplitOverrides, fillFieldWithValue, getEntries, type ArraySectionKey, type FillResult } from './filler'
 import { summarizeArrayEntry, type Profile, type Settings } from '../shared/schema'
 
 const OVERLAY_CSS = `
@@ -130,28 +131,24 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node
 }
 
-function describeFieldForReport(match: FieldMatch): string {
-  const clues = match.field.clues
-  return clues.labelText || clues.ariaLabel || clues.placeholder || clues.nameOrId || '(라벨 없음)'
-}
-
 function renderBanner(results: FillResult[]) {
   const root = ensureOverlayRoot()
   root.querySelector('.af-banner')?.remove()
 
   const total = results.length
   const filled = results.filter((r) => r.status === 'filled').length
+  const skipped = results.filter((r) => r.status === 'skipped').length
   const unmatched = results.filter((r) => r.status === 'unmatched')
 
   const banner = el('div', 'af-banner')
-  const summaryText = unmatched.length
-    ? `${total}개 필드 중 ${filled}개 입력됨, ${unmatched.length}개 미인식`
-    : `${total}개 필드 중 ${filled}개 입력됨`
-  banner.appendChild(el('div', 'af-banner-summary', summaryText))
+  const parts = [`${total}개 필드 중 ${filled}개 입력됨`]
+  if (skipped > 0) parts.push(`${skipped}개 건너뜀`)
+  if (unmatched.length > 0) parts.push(`${unmatched.length}개 미인식`)
+  banner.appendChild(el('div', 'af-banner-summary', parts.join(', ')))
 
   if (unmatched.length > 0) {
     const list = el('ul', 'af-banner-unmatched-list')
-    unmatched.forEach((r) => list.appendChild(el('li', undefined, describeFieldForReport(r.match))))
+    unmatched.forEach((r) => list.appendChild(el('li', undefined, describeFieldClues(r.match.field.clues))))
     banner.appendChild(list)
   }
 
@@ -164,14 +161,16 @@ function renderBanner(results: FillResult[]) {
   root.appendChild(banner)
 }
 
+function updateHighlight(match: FieldMatch, status: FillResult['status'], highlightEnabled: boolean) {
+  const element = match.field.element
+  element.classList.remove('af-highlight-success', 'af-highlight-low')
+  if (!highlightEnabled || status !== 'filled') return
+  element.classList.add(match.confidence === 'low' ? 'af-highlight-low' : 'af-highlight-success')
+}
+
 function applyHighlights(results: FillResult[], highlightEnabled: boolean) {
   ensureHighlightStyle()
-  results.forEach((r) => {
-    const element = r.match.field.element
-    element.classList.remove('af-highlight-success', 'af-highlight-low')
-    if (!highlightEnabled || r.status !== 'filled') return
-    element.classList.add(r.match.confidence === 'low' ? 'af-highlight-low' : 'af-highlight-success')
-  })
+  results.forEach((r) => updateHighlight(r.match, r.status, highlightEnabled))
 }
 
 // 옵션 페이지의 항목 목록과 같은 요약 규칙(shared/schema.ts)을 재사용해서, 스왑 드롭다운에
@@ -287,13 +286,18 @@ function attachSwapControls(results: FillResult[], profile: Profile, highlightEn
       badge.addEventListener('click', (event) => {
         event.stopPropagation()
         openDropdown(badge, group.section, entries, currentEntryId, (chosenEntry) => {
-          group.matches.forEach((m) => {
-            if (!m.key) return
-            const result = fillFieldWithValue(m, chosenEntry[m.key])
-            m.field.element.classList.remove('af-highlight-success', 'af-highlight-low')
-            if (highlightEnabled && result.status === 'filled') {
-              m.field.element.classList.add(m.confidence === 'low' ? 'af-highlight-low' : 'af-highlight-success')
+          const keyedMatches = group.matches.filter((m) => m.key)
+          // 필드가 인접 입력칸으로 분할돼 있으면(전화번호 등) 초기 자동입력과 동일한 규칙으로
+          // 나눠 넣어야 한다 — 그렇지 않으면 원본 문자열 전체가 각 칸에 그대로 중복 입력된다.
+          const { overrides, unsplittable } = computeSplitOverrides(keyedMatches, (m) => chosenEntry[m.key!])
+
+          keyedMatches.forEach((m) => {
+            if (unsplittable.has(m)) {
+              updateHighlight(m, 'skipped', highlightEnabled)
+              return
             }
+            const result = fillFieldWithValue(m, overrides.get(m) ?? chosenEntry[m.key!])
+            updateHighlight(m, result.status, highlightEnabled)
           })
           currentEntryId = String(chosenEntry.id)
           closeDropdown()

@@ -107,6 +107,12 @@ function getNearbyText(el: FieldElement): string {
   return ''
 }
 
+// 라벨→aria-label→placeholder→name/id 순 사람이 읽을 수 있는 설명 텍스트. 팝업의 미인식
+// 목록과 페이지 내 오버레이 배너가 같은 필드를 다르게 설명하지 않도록 한 곳에 둔다.
+export function describeFieldClues(clues: FieldClues): string {
+  return clues.labelText || clues.ariaLabel || clues.placeholder || clues.nameOrId || '(라벨 없음)'
+}
+
 export function scanFields(root: ParentNode = document): ScannedField[] {
   const candidates = root.querySelectorAll('input, textarea, select')
   const fields: ScannedField[] = []

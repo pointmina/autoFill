@@ -29,7 +29,8 @@ export interface ParsedResumeDraft {
 }
 
 // 이 파서는 최선 추정치일 뿐이다 — 이력서는 형식이 제각각이라 완벽할 수 없다. 특히:
-//  - 날짜 범위가 없는 서술형 이력서, "2020년 3월"처럼 정규식이 못 잡는 날짜 표기는 놓친다.
+//  - "2020.03"/"2020-03"류 숫자 표기와 "2020년 3월"류 한국어 표기는 인식하지만, 그 외
+//    표기(2자리 연도, "20.3", 영문 월 이름 등)나 날짜 범위 자체가 없는 순수 서술형 이력서는 놓친다.
 //  - PDF에서 추출한 텍스트는 시각적 열 순서가 아니라 텍스트 런 순서로 이어붙여지므로 표/다단
 //    레이아웃에서는 라벨과 값이 뒤섞일 수 있다.
 //  - "제목류" 필드(학교명/회사명 등)의 최후 추정(청크의 첫 줄)은 틀릴 수 있다.
@@ -39,8 +40,11 @@ export interface ParsedResumeDraft {
 // 그래서 옵션 페이지의 검토 화면은 이 결과를 그대로 저장하지 않고 사용자가 확인/수정하게 한다.
 
 const LABEL_VALUE_LINE = /^(.{1,20}?)\s*[:：]\s*(.+)$/
-const DATE_RANGE = /(\d{4}[.\-/]\d{1,2})\s*[~\-]\s*(\d{4}[.\-/]\d{1,2}|현재|재직중)/
-const SINGLE_DATE = /\d{4}[.\-/]\d{1,2}(?:[.\-/]\d{1,2})?/
+// "2024-05"/"2024.05.15" 같은 숫자 표기뿐 아니라 "2024년 5월"/"2024년 5월 15일"처럼 자소서에
+// 흔한 한국어 자연어 날짜 표기도 항목 경계/날짜 값으로 인식한다.
+const DATE_TOKEN_SOURCE = '\\d{4}\\s*년\\s*\\d{1,2}\\s*월(?:\\s*\\d{1,2}\\s*일)?|\\d{4}[.\\-/]\\d{1,2}(?:[.\\-/]\\d{1,2})?'
+const DATE_RANGE = new RegExp(`(${DATE_TOKEN_SOURCE})\\s*[~\\-]\\s*(${DATE_TOKEN_SOURCE}|현재|재직\\s*중)`)
+const SINGLE_DATE = new RegExp(DATE_TOKEN_SOURCE)
 const MARKDOWN_HEADING = /^(#{1,6})\s+(.*)$/
 const MARKDOWN_BULLET = /^\s*[-*+]\s+/
 const MARKDOWN_RULE = /^(-{3,}|\*{3,}|_{3,})\s*$/
@@ -216,10 +220,16 @@ function splitByMarkdownHeading(lines: Line[]): Line[][] | null {
 
   const chunks: Line[][] = []
   let current: Line[] = []
+  let seenHeading = false
   for (const line of lines) {
-    if (line.headingLevel !== null && current.length > 0) {
-      chunks.push(current)
+    if (line.headingLevel !== null) {
+      if (current.length > 0) chunks.push(current)
       current = []
+      seenHeading = true
+    } else if (!seenHeading) {
+      // 첫 제목을 만나기 전의 서두(전체 소개 문장 등)는 어느 항목에도 속하지 않으므로 버린다 —
+      // 그대로 두면 별도 청크로 분리돼 제목류(회사명/학교명 등) 최후 추정에서 가짜 항목이 된다.
+      continue
     }
     current.push(line)
   }
@@ -247,7 +257,9 @@ function splitByDateRangeAnchor(lines: string[]): string[][] | null {
 }
 
 function normalizeDateToken(token: string): string {
-  const match = token.match(/(\d{4})[.\-/](\d{1,2})(?:[.\-/](\d{1,2}))?/)
+  const match =
+    token.match(/(\d{4})\s*년\s*(\d{1,2})\s*월(?:\s*(\d{1,2})\s*일)?/) ??
+    token.match(/(\d{4})[.\-/](\d{1,2})(?:[.\-/](\d{1,2}))?/)
   if (!match) return token
   const [, year, month, day] = match
   const parts = [year, month.padStart(2, '0')]
@@ -262,7 +274,7 @@ function applyDates(values: Record<string, string>, chunkText: string, section: 
     if (!match) return
     if (values[rangeFields.start] === undefined) values[rangeFields.start] = normalizeDateToken(match[1])
     const endToken = match[2]
-    if (endToken === '현재' || endToken === '재직중') {
+    if (endToken === '현재' || normalizeText(endToken) === '재직중') {
       if (section === 'career') values.isCurrent = 'true'
     } else if (values[rangeFields.end] === undefined) {
       values[rangeFields.end] = normalizeDateToken(endToken)
