@@ -109,6 +109,27 @@ function matchSectionHeading(text: string): SectionKey | null {
   return null
 }
 
+// findHeadingNear는 태그(h1-6/legend)나 영문 클래스명("title"/"heading")으로만 제목 후보를
+// 가려내는데, 한국 채용 사이트는 "tit"/"sec_tit"/"stit"처럼 축약된 한국어 클래스명을 쓰는
+// 경우가 많아 그 휴리스틱을 통과하지 못한다. findGroupLabel(라디오/체크박스 그룹 라벨) 쪽은
+// "아무 인접 텍스트"를 받아들이면 오탐이 늘어나 태그/클래스 제한이 필요하지만, 섹션 추론은
+// 텍스트 자체가 SECTION_HEADINGS 키워드와 일치하는지로 바로 판단할 수 있어 태그/클래스 제한이
+// 필요 없다 — 사전(데이터)만으로 매칭 범위를 넓힌다.
+function findSectionHeadingNear(container: Element): SectionKey | null {
+  let sibling = container.previousElementSibling
+  let hops = 0
+  while (sibling && hops < 5) {
+    const text = sibling.textContent?.trim()
+    if (text && text.length <= 20) {
+      const matched = matchSectionHeading(text)
+      if (matched) return matched
+    }
+    sibling = sibling.previousElementSibling
+    hops++
+  }
+  return null
+}
+
 // 필드의 조상을 거슬러 올라가며 섹션 제목을 찾는다 (예: "취득일"이 자격증/어학 중 어느 영역인지 구분).
 export function inferSection(element: Element): SectionKey | null {
   let current: Element | null = element
@@ -120,6 +141,8 @@ export function inferSection(element: Element): SectionKey | null {
       const matched = matchSectionHeading(heading)
       if (matched) return matched
     }
+    const directMatch = findSectionHeadingNear(current)
+    if (directMatch) return directMatch
     current = current.parentElement
     depth++
   }

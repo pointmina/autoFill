@@ -22,6 +22,7 @@ export default function App() {
         ok: false,
         totalCount: 0,
         filledCount: 0,
+        skippedCount: 0,
         unmatchedLabels: [],
         error: error instanceof Error ? error.message : '확장 프로그램과 통신하지 못했습니다.',
       })
@@ -44,6 +45,7 @@ export default function App() {
       {status === 'done' && result && (
         <p className="banner banner-success">
           {result.totalCount}개 필드 중 {result.filledCount}개 입력됨
+          {result.skippedCount > 0 && `, ${result.skippedCount}개 건너뜀`}
           {result.unmatchedLabels.length > 0 && `, ${result.unmatchedLabels.length}개 미인식`}
         </p>
       )}

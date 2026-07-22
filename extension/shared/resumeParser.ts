@@ -39,7 +39,7 @@ export interface ParsedResumeDraft {
 // 그래서 옵션 페이지의 검토 화면은 이 결과를 그대로 저장하지 않고 사용자가 확인/수정하게 한다.
 
 const LABEL_VALUE_LINE = /^(.{1,20}?)\s*[:：]\s*(.+)$/
-const DATE_RANGE = /(\d{4}[.\-/]\d{1,2})\s*[~\-]\s*(\d{4}[.\-/]\d{1,2}|현재|재직중)/
+const DATE_RANGE = /(\d{4}[.\-/]\d{1,2})\s*[~\-]\s*(\d{4}[.\-/]\d{1,2}|현재|재직\s*중)/
 const SINGLE_DATE = /\d{4}[.\-/]\d{1,2}(?:[.\-/]\d{1,2})?/
 const MARKDOWN_HEADING = /^(#{1,6})\s+(.*)$/
 const MARKDOWN_BULLET = /^\s*[-*+]\s+/
@@ -216,10 +216,16 @@ function splitByMarkdownHeading(lines: Line[]): Line[][] | null {
 
   const chunks: Line[][] = []
   let current: Line[] = []
+  let seenHeading = false
   for (const line of lines) {
-    if (line.headingLevel !== null && current.length > 0) {
-      chunks.push(current)
+    if (line.headingLevel !== null) {
+      if (current.length > 0) chunks.push(current)
       current = []
+      seenHeading = true
+    } else if (!seenHeading) {
+      // 첫 제목을 만나기 전의 서두(전체 소개 문장 등)는 어느 항목에도 속하지 않으므로 버린다 —
+      // 그대로 두면 별도 청크로 분리돼 제목류(회사명/학교명 등) 최후 추정에서 가짜 항목이 된다.
+      continue
     }
     current.push(line)
   }
@@ -262,7 +268,7 @@ function applyDates(values: Record<string, string>, chunkText: string, section: 
     if (!match) return
     if (values[rangeFields.start] === undefined) values[rangeFields.start] = normalizeDateToken(match[1])
     const endToken = match[2]
-    if (endToken === '현재' || endToken === '재직중') {
+    if (endToken === '현재' || normalizeText(endToken) === '재직중') {
       if (section === 'career') values.isCurrent = 'true'
     } else if (values[rangeFields.end] === undefined) {
       values[rangeFields.end] = normalizeDateToken(endToken)

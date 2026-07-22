@@ -1,4 +1,4 @@
-import { scanFields, type ScannedField } from './scanner'
+import { describeFieldClues, scanFields } from './scanner'
 import { matchFields } from './matcher'
 import { fillFields } from './filler'
 import { showAutofillOverlay, clearAutofillOverlay } from './overlay'
@@ -9,10 +9,6 @@ declare global {
   interface Window {
     __autofillContentLoaded?: boolean
   }
-}
-
-function describeUnmatched(field: ScannedField): string {
-  return field.clues.labelText || field.clues.placeholder || field.clues.nameOrId || '(라벨 없음)'
 }
 
 async function runPipeline(): Promise<RunAutofillResult> {
@@ -29,9 +25,10 @@ async function runPipeline(): Promise<RunAutofillResult> {
     ok: true,
     totalCount: results.length,
     filledCount: results.filter((r) => r.status === 'filled').length,
+    skippedCount: results.filter((r) => r.status === 'skipped').length,
     unmatchedLabels: results
       .filter((r) => r.status === 'unmatched')
-      .map((r) => describeUnmatched(r.match.field)),
+      .map((r) => describeFieldClues(r.match.field.clues)),
   }
 }
 
@@ -50,6 +47,7 @@ if (!window.__autofillContentLoaded) {
           ok: false,
           totalCount: 0,
           filledCount: 0,
+          skippedCount: 0,
           unmatchedLabels: [],
           error: error instanceof Error ? error.message : String(error),
         }),
